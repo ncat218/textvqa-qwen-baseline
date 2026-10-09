@@ -1,0 +1,2 @@
+image_id,question_id,question,answers_json,clean_image_path,degraded_image_path,condition,level,config_sha256,source_manifest_sha256
+image_a,question_a,What is written?,"[""hello"", ""hello"", ""hello"", ""hello"", ""hello"", ""hello"", ""hello"", ""hello"", ""hello"", ""hello""]",/old/clean/image_a.jpg,/kaggle/working/textvqa_realistic_v2/main/images/realistic_mix/L2/image_a.png,realistic_mix,L2,config_hash,manifest_hash

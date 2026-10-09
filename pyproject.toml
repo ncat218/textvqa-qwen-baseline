@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textvqa-qwen-baseline"
+version = "0.1.0"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+  "torch==2.6.0",
+  "transformers==4.50.0",
+  "accelerate==1.6.0",
+  "qwen-vl-utils==0.0.8",
+  "pandas==2.2.3",
+  "Pillow==11.1.0",
+  "tqdm==4.67.1",
+  "PyYAML==6.0.2",
+  "numpy==1.26.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

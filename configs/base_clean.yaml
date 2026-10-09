@@ -1,0 +1,18 @@
+experiment_name: base_clean
+manifest_path: ${TEXTVQA_DATASET_ROOT}/textvqa_realistic_v2/main/final_main_manifest.csv
+data_root: ${TEXTVQA_DATASET_ROOT}/textvqa_realistic_v2
+clean_root: ${TEXTVQA_CLEAN_ROOT}
+image_column: clean_image_path
+expected_condition: null
+expected_level: null
+output_dir: outputs/base_clean
+model_id: Qwen/Qwen2.5-VL-3B-Instruct
+model_revision: main
+seed: 42
+dtype: bfloat16
+attn_implementation: auto
+max_pixels: 1605632 # 2048 * 28 * 28; preserves small scene text
+max_new_tokens: 20
+batch_size: 1
+prompt_template_id: textvqa_short_v1
+device: cuda

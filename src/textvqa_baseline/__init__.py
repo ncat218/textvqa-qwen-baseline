@@ -1,0 +1,1 @@
+"""Reproducible paired TextVQA baseline."""

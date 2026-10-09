@@ -1,0 +1,14 @@
+.venv/
+.env
+.env.*
+outputs/
+.cache/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.jpg
+*.jpeg
+*.png
+*.safetensors
+checkpoints/
+raw_images/
