@@ -11,7 +11,7 @@ Dataset suy thoái: [Data_suy_thoai (Text VQA)](https://www.kaggle.com/datasets/
 Cần **hai nguồn ảnh**:
 
 1. Dataset suy thoái: `textvqa_realistic_v2/main/final_main_manifest.csv` và `textvqa_realistic_v2/main/images/realistic_mix/L2/*.png`.
-2. **Ảnh TextVQA gốc** đã dùng để tạo bộ suy thoái. Dataset suy thoái không kèm ảnh gốc. `clean_image_path` trong manifest ghi đường dẫn tại lúc tạo dữ liệu; đường dẫn đó có thể không tồn tại trên máy H200.
+2. **Ảnh TextVQA gốc** đã dùng để tạo bộ suy thoái. Dataset suy thoái không kèm ảnh gốc. Tải từ [trang dataset TextVQA chính thức](https://textvqa.org/dataset/): mục **v0.5.1 → Training set → 21,953 images** dẫn tới [`train_val_images.zip`](https://dl.fbaipublicfiles.com/textvqa/images/train_val_images.zip) (trang ghi khoảng 6,6 GB). Trang chính thức xác nhận **ảnh validation cũng nằm trong gói train/val này**. `clean_image_path` trong manifest ghi đường dẫn tại lúc tạo dữ liệu; đường dẫn đó có thể không tồn tại trên máy H200.
 
 Ví dụ cấu trúc trên máy chủ:
 
@@ -39,7 +39,16 @@ mkdir -p "$HOME/data/data-suy-thoai-text-vqa"
 
 Làm theo liên kết đăng nhập CLI in ra. **Không đưa token Kaggle vào GitHub.** Cú pháp tải theo [tài liệu Kaggle CLI](https://github.com/Kaggle/kaggle-cli/blob/main/docs/datasets.md), xác thực theo [hướng dẫn Kaggle](https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication). Nếu dữ liệu đã nằm trên ổ được gắn sẵn, bỏ qua bước tải và dùng đường dẫn của ổ đó.
 
-Ảnh gốc cần được cung cấp riêng. Sau khi đặt dữ liệu, khai báo trong shell sẽ chạy thí nghiệm:
+Tải và giải nén ảnh gốc trên máy H200 (cần đủ dung lượng cho cả file ZIP và ảnh sau giải nén):
+
+```bash
+mkdir -p "$HOME/data/textvqa-clean"
+curl -fL --retry 3 -o "$HOME/data/train_val_images.zip" \
+  https://dl.fbaipublicfiles.com/textvqa/images/train_val_images.zip
+python3.11 -m zipfile -e "$HOME/data/train_val_images.zip" "$HOME/data/textvqa-clean"
+```
+
+Manifest đã có câu hỏi và 10 đáp án tham chiếu, nên baseline này không cần tải thêm file JSON annotation của TextVQA. Sau khi giải nén, khai báo trong shell sẽ chạy thí nghiệm:
 
 ```bash
 export TEXTVQA_DATASET_ROOT="$HOME/data/data-suy-thoai-text-vqa"
