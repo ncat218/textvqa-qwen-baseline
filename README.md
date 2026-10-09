@@ -1,69 +1,117 @@
-# TextVQA clean/degraded Qwen baseline
+# Baseline Qwen cho TextVQA: ảnh gốc và ảnh suy thoái
 
-Command-line, inference-only paired baseline for the 1,000 questions in `main/final_main_manifest.csv` from [Data_suy_thoai (Text VQA)](https://www.kaggle.com/datasets/anhthu128/data-suy-thoai-text-vqa). The degraded condition is `realistic_mix/L2`. The model is exactly `Qwen/Qwen2.5-VL-3B-Instruct`; both runs use one image, the same question, the same prompt, and greedy decoding. No model training or image restoration occurs.
+Repo này **chỉ suy luận, không huấn luyện**. Model `Qwen/Qwen2.5-VL-3B-Instruct` trả lời cùng 1.000 câu hỏi TextVQA hai lần: với ảnh gốc (`clean_image_path`) và ảnh suy thoái `realistic_mix/L2` (`degraded_image_path`). Hai lượt dùng cùng prompt, model, cấu hình xử lý ảnh và giải mã greedy. Cuối cùng, chương trình chấm điểm và so sánh từng câu hỏi.
 
-## Data layout and the clean-image prerequisite
+Dataset suy thoái: [Data_suy_thoai (Text VQA)](https://www.kaggle.com/datasets/anhthu128/data-suy-thoai-text-vqa).
 
-The published degradation dataset contains `textvqa_realistic_v2/main/final_main_manifest.csv` and `textvqa_realistic_v2/main/images/realistic_mix/L2/*.png`. Its manifest also has `clean_image_path`, but those values describe the **original TextVQA image source at generation time**. The degradation dataset does not bundle a `main/images_clean` directory. Obtain the same original TextVQA clean images separately and point `TEXTVQA_CLEAN_ROOT` to their directory. Validation will reject missing or ambiguous clean images before loading the model.
+## 1. Chuẩn bị dữ liệu trên máy H200
 
-The manifest's legacy `clean_path` and `blur_path` columns are never used. The baseline reads `clean_image_path` and `degraded_image_path` only. The path resolver maps an old `/.../main/images/realistic_mix/L2/name.png` to the mounted degradation dataset and locates a clean image by exact filename under `TEXTVQA_CLEAN_ROOT`. A duplicate filename in the clean source is an error. The manifest bytes are never edited for a full run.
+**Dataset Kaggle không tự mount trên máy H200 bên ngoài Kaggle.** Người chạy phải tải/copy nó về máy chủ hoặc dùng ổ dữ liệu do quản trị viên gắn sẵn. Chức năng **Add Input** chỉ tự gắn dữ liệu trong Kaggle Notebook. Repo GitHub này chỉ chứa mã, không chứa ảnh hay model.
 
-Set these paths on the **Linux H200 server**:
+Cần **hai nguồn ảnh**:
 
-```bash
-export TEXTVQA_DATASET_ROOT=/data/data-suy-thoai-text-vqa
-export TEXTVQA_CLEAN_ROOT=/data/original-textvqa-images
-export HF_HOME=/data/hf-cache
+1. Dataset suy thoái: `textvqa_realistic_v2/main/final_main_manifest.csv` và `textvqa_realistic_v2/main/images/realistic_mix/L2/*.png`.
+2. **Ảnh TextVQA gốc** đã dùng để tạo bộ suy thoái. Dataset suy thoái không kèm ảnh gốc. `clean_image_path` trong manifest ghi đường dẫn tại lúc tạo dữ liệu; đường dẫn đó có thể không tồn tại trên máy H200.
+
+Ví dụ cấu trúc trên máy chủ:
+
+```text
+~/data/
+├── data-suy-thoai-text-vqa/
+│   └── textvqa_realistic_v2/
+│       └── main/
+│           ├── final_main_manifest.csv
+│           └── images/realistic_mix/L2/*.png
+└── textvqa-clean/
+    └── ... các ảnh TextVQA gốc tương ứng ...
 ```
 
-The first variable must contain the `textvqa_realistic_v2` directory. The second must recursively contain the 1,000 matching original image filenames. Make sure the images really correspond to the IDs; filenames alone do not prove content identity.
-
-Expected manifest columns: `image_id`, `question_id`, `question`, `answers_json` or `answers` (10 strings), `clean_image_path`, `degraded_image_path`, `condition`, `level`, `config_sha256`, `source_manifest_sha256`. Other columns are retained. A full manifest must have exactly 1,000 rows and unique `question_id`. Each row must be `realistic_mix/L2`.
-
-## Setup
-
-Use Linux, Python 3.11, CUDA and one H200. From this project directory:
+Có thể tải dataset suy thoái từ trang Kaggle bằng trình duyệt rồi chuyển file sang máy chủ. Nếu muốn tải thẳng trên máy chủ, dùng **Kaggle CLI** trong một môi trường riêng:
 
 ```bash
+python3.11 -m venv "$HOME/.venvs/kaggle-cli"
+"$HOME/.venvs/kaggle-cli/bin/python" -m pip install kaggle
+"$HOME/.venvs/kaggle-cli/bin/kaggle" auth login --no-launch-browser
+mkdir -p "$HOME/data/data-suy-thoai-text-vqa"
+"$HOME/.venvs/kaggle-cli/bin/kaggle" datasets download anhthu128/data-suy-thoai-text-vqa \
+  -p "$HOME/data/data-suy-thoai-text-vqa" --unzip
+```
+
+Làm theo liên kết đăng nhập CLI in ra. **Không đưa token Kaggle vào GitHub.** Cú pháp tải theo [tài liệu Kaggle CLI](https://github.com/Kaggle/kaggle-cli/blob/main/docs/datasets.md), xác thực theo [hướng dẫn Kaggle](https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication). Nếu dữ liệu đã nằm trên ổ được gắn sẵn, bỏ qua bước tải và dùng đường dẫn của ổ đó.
+
+Ảnh gốc cần được cung cấp riêng. Sau khi đặt dữ liệu, khai báo trong shell sẽ chạy thí nghiệm:
+
+```bash
+export TEXTVQA_DATASET_ROOT="$HOME/data/data-suy-thoai-text-vqa"
+export TEXTVQA_CLEAN_ROOT="$HOME/data/textvqa-clean"
+export HF_HOME="$HOME/.cache/huggingface"
+test -f "$TEXTVQA_DATASET_ROOT/textvqa_realistic_v2/main/final_main_manifest.csv"
+```
+
+`TEXTVQA_DATASET_ROOT` là **thư mục cha của `textvqa_realistic_v2`**. `TEXTVQA_CLEAN_ROOT` có thể có thư mục con. Chương trình tìm ảnh gốc theo đúng tên file; nếu thiếu hoặc trùng tên sẽ dừng. Người chạy cần bảo đảm nội dung ảnh đúng `image_id`, vì chỉ trùng tên file chưa chứng minh đúng ảnh.
+
+## 2. Lấy mã và cài môi trường
+
+Máy đích: Linux, Python 3.11, CUDA và **đúng một GPU NVIDIA H200 được hiển thị**. Nếu repo Private, tài khoản GitHub của thầy cần được cấp quyền truy cập.
+
+```bash
+git clone https://github.com/ncat218/textvqa-qwen-baseline.git
+cd textvqa-qwen-baseline
 bash run.sh setup
 ```
 
-`setup` uses `uv` if present or a local `.venv` with pip. Direct dependencies are version-pinned in `pyproject.toml`; for a fully frozen transitive environment, generate and commit a lock file on the target Linux/Python platform before the experiment. FlashAttention 2 is optional; when importable and usable it is selected, otherwise SDPA is used. Record the selected implementation for both runs and compare it before interpreting results.
+`setup` tạo `.venv` trong repo bằng `uv` (nếu có) hoặc `venv` + pip. Các phụ thuộc trực tiếp được ghim phiên bản trong `pyproject.toml` và `requirements.txt`. **Chưa có lock file cho toàn bộ phụ thuộc bắc cầu trên Linux/H200**; nếu cần tái lập môi trường tuyệt đối, tạo và lưu lock file trên máy đích trước lượt chạy chính thức.
 
-Download the model **explicitly** before running the baseline. The run commands use offline mode and cannot fetch it implicitly:
+Tải model **một lần, rõ ràng**. Các lệnh suy luận chạy offline, không tự tải model:
 
 ```bash
 .venv/bin/python -c 'from huggingface_hub import snapshot_download; snapshot_download("Qwen/Qwen2.5-VL-3B-Instruct", revision="main")'
 ```
 
-For strict reproducibility, replace `model_revision: main` in **both** YAML files with the same immutable Hugging Face commit hash before download and inference. The comparison checks the resolved commit. The default `max_pixels` is 2,048 visual patches × 28 × 28 = 1,605,632 pixels, chosen to retain small scene text; both configs use the same value. The Qwen [model card](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) and [Transformers Qwen2.5-VL docs](https://huggingface.co/docs/transformers/v4.50.0/en/model_doc/qwen2_5_vl) describe the chat template, image preprocessing and generation pattern used here.
+Để cố định phiên bản model, thay `model_revision: main` trong **cả hai** file YAML bằng cùng một commit hash trên Hugging Face, rồi dùng chính commit đó trong lệnh tải. Xem [model card Qwen](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) và [tài liệu Transformers](https://huggingface.co/docs/transformers/v4.50.0/en/model_doc/qwen2_5_vl).
 
-## Commands
+## 3. Chạy thí nghiệm
+
+Trong **cùng cửa sổ shell** đã đặt các biến môi trường ở mục 1:
 
 ```bash
-bash run.sh validate       # both image columns, all 1,000 rows; no model load
-bash run.sh smoke          # first 16 paired rows, one model load, scores and time estimate
-bash run.sh base_clean     # 1,000 clean rows
-bash run.sh base_degraded  # same 1,000 rows on realistic_mix L2
-bash run.sh score_baseline # score both and compare paired questions
+bash run.sh validate       # kiểm tra manifest và ảnh; chưa nạp model
+bash run.sh smoke          # 16 câu hỏi clean/degraded; nạp model một lần
+bash run.sh base_clean     # đủ 1.000 câu với ảnh gốc
+bash run.sh base_degraded  # cùng 1.000 câu với ảnh realistic_mix/L2
+bash run.sh score_baseline # chấm hai lượt và so sánh theo từng câu
 ```
 
-Run the two full baselines only after checking the smoke outputs. `score_baseline` does not invoke inference. Reruns require a new `--output-dir` through `scripts/run_inference.py`, or moving the prior output out of the way. The CLI refuses to overwrite existing outputs.
+**Chỉ chạy đủ 1.000 câu sau khi `validate` và `smoke` thành công.** Smoke test in ước lượng thời gian của cặp lượt chạy đầy đủ; không dùng điểm của 16 câu để sửa prompt hay cấu hình. `score_baseline` chỉ chấm các kết quả đã có, không nạp model.
 
-The smoke scores are a functionality check, not a basis for changing the fixed prompt, model or preprocessing settings.
+Manifest phải có đúng 1.000 dòng, `question_id` duy nhất, 10 đáp án tham chiếu mỗi câu, `condition=realistic_mix` và `level=L2`. Các cột bắt buộc: `image_id`, `question_id`, `question`, `answers_json` hoặc `answers`, `clean_image_path`, `degraded_image_path`, `condition`, `level`, `config_sha256`, `source_manifest_sha256`. Hai cột cũ `clean_path` và `blur_path` **không được dùng**. Chương trình ánh xạ đường dẫn ảnh suy thoái cũ sang vị trí mới trên máy H200 mà không sửa manifest gốc.
 
-## Outputs
+## 4. Kết quả
 
-Each run writes `run_metadata.json`, an exact `manifest_used.csv`, `predictions.jsonl`, `predictions.csv`, `runtime.csv`, `errors.jsonl`, and `summary.json`. Scoring adds `score_report.json` and `scored_predictions.csv`. A failed row is written with `status=failed`, retained in the predictions, and logged in `errors.jsonl`; the process exits nonzero and scoring refuses to report an overall result.
+Mỗi lượt nằm trong `outputs/base_clean/` hoặc `outputs/base_realistic_mix_l2/`:
 
-Prediction fields: `image_id`, `question_id`, `question`, `image_path`, `condition_name`, `model_id`, `model_revision`, `prompt_template_id`, `raw_prediction`, `normalized_prediction`, `generation_seconds`, `preprocess_seconds`, `total_seconds`, `status`, `error_message`. Only whitespace is normalized in saved predictions. The evaluator separately lowercases, removes VQA-style punctuation/articles, normalizes number words and common contractions, then computes `min(matching_reference_answers/3, 1)` over the 10 human answers, as requested in the experiment specification. This formula is a simplified VQA consensus score and should be named as such in reports.
+```text
+run_metadata.json      thông tin môi trường, model và hash
+manifest_used.csv       manifest dùng cho lượt chạy
+predictions.jsonl       dự đoán từng câu
+predictions.csv         dự đoán dạng bảng
+runtime.csv             thời gian từng câu
+errors.jsonl            lỗi từng câu (rỗng nếu không lỗi)
+summary.json            số dòng và thống kê thời gian
+score_report.json       điểm tổng sau khi chấm
+scored_predictions.csv  điểm từng câu
+```
 
-Comparison writes `paired_scores.csv`, `latency_comparison.csv`, and `comparison_report.json`: clean/degraded soft accuracies, percentage-point difference, relative drop, counts of lower/equal/higher degraded scores, and paired latency. It rejects mismatched manifests, IDs, model revisions, prompts, generation settings, processor resolution, relevant config fields, and hardware/attention implementation.
+Mỗi dự đoán có `image_id`, `question_id`, `question`, `image_path`, `condition_name`, `model_id`, `model_revision`, `prompt_template_id`, `raw_prediction`, `normalized_prediction`, `generation_seconds`, `preprocess_seconds`, `total_seconds`, `status`, `error_message`. Dòng lỗi vẫn được ghi; nếu có lỗi, chương trình không báo điểm tổng gây hiểu nhầm.
 
-## Checks possible without the H200
+`outputs/comparison_clean_vs_realistic_mix_l2/` chứa `paired_scores.csv`, `latency_comparison.csv`, `comparison_report.json`: điểm clean/degraded, chênh lệch điểm phần trăm, mức giảm tương đối, số câu điểm giảm/bằng/tăng và thời gian. Chương trình từ chối so sánh hai lượt khi manifest, ID, model, prompt, cấu hình giải mã hoặc môi trường chạy khác nhau.
+
+Điểm dùng chuẩn hóa đáp án kiểu VQA rồi tính `min(số đáp án tham chiếu khớp / 3, 1)` trên 10 đáp án, **đúng công thức trong đặc tả thí nghiệm**. Đây là công thức đồng thuận VQA giản lược; không gọi là bộ chấm TextVQA chính thức nếu chưa đối chiếu evaluator chính thức.
+
+## 5. Kiểm tra không cần GPU và giới hạn hiện tại
 
 ```bash
 PYTHONPATH=src python3.11 -m unittest discover -s tests -v
 ```
 
-These tests use generated images and a fake manifest; they do not download Qwen or execute CUDA. Full model loading, GPU behavior, real data paths, and performance remain unverified until the Linux H200 smoke test succeeds.
+Đã kiểm tra cú pháp Python và 4 phép thử với ảnh/manifest giả; chúng không tải Qwen hoặc dùng CUDA. **Chưa xác nhận** đường dẫn dữ liệu thật, tải model, chạy H200, thời gian và điểm thực tế. Bước `validate` rồi `smoke` trên máy H200 sẽ kiểm tra các phần này trước lượt chạy đầy đủ.
